@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# dsh-ssh-hub 本地启动脚本：无需 pip install，直接使用项目 venv。
+# 用法: ./ssh-hub <command> [args...]
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -x "$DIR/.venv/bin/python" ]]; then
+  echo "错误: 未找到 $DIR/.venv/bin/python，请先运行: python3 -m venv .venv" >&2
+  exit 1
+fi
+exec "$DIR/.venv/bin/python" -m ssh_hub "$@"

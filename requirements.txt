@@ -1,0 +1,3 @@
+# dsh-ssh-hub 当前仅依赖 Python 标准库（argparse / subprocess / json），无需额外安装。
+# 未来如需第三方依赖（例如 paramiko），在此声明并执行:
+#   pip install -r requirements.txt

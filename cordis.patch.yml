@@ -1,0 +1,7 @@
+# dsh-ssh-hub bundle patch：挂载 ssh_hub 工具。
+# 通过 `dsh plugin --profile <name> add github:xhj-cloud/dsh-ssh-hub` 安装时，
+# dsh CLI 的 reconcile 会自动把本包加入 profile 的 bundles 层（无需手动加 insert）。
+- insert:
+    - id: ssh-hub
+      name: 'dsh-ssh-hub'
+

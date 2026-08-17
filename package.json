@@ -1,0 +1,31 @@
+{
+  "name": "dsh-ssh-hub",
+  "version": "0.1.0",
+  "description": "dsh (DeepSeek Harness) host plugin + Python CLI: centralized remote-server SSH key/password management; agents run commands and transfer files on servers directly",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./plugin/index.js",
+  "exports": {
+    ".": "./plugin/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xhj-cloud/dsh-ssh-hub.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "cordis",
+    "ssh"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

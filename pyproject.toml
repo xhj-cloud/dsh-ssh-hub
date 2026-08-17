@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dsh-ssh-hub"
+version = "0.1.0"
+description = "集中管理远程服务器 SSH 密钥的 CLI 工具：密钥统一存放于 ~/.ssh，供 dsh 与系统 ssh 复用"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+ssh-hub = "ssh_hub.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ssh_hub*"]
