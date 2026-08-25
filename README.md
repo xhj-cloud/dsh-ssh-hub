@@ -125,3 +125,7 @@ python -m unittest discover -s tests -v
 
 测试通过 `DSH_SSH_HUB_DIR` / `DSH_SSH_DIR` 环境变量把密钥库与同步目标指向临时目录，
 全程不触碰真实 `~/.ssh`。
+
+## License / 许可证
+
+本项目采用 [CC BY-NC 4.0](LICENSE)（Creative Commons 署名-非商业性使用 4.0 国际）协议开源：可以自由查看、使用、修改和分发，但**禁止任何商业用途**。
