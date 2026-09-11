@@ -89,12 +89,12 @@ def run_ssh(args: list[str]) -> int:
     if shutil.which("ssh") is None:
         print("错误: 未找到 ssh 命令", file=sys.stderr)
         return 1
-    _log(f"ssh 密钥尝试: ssh -o ConnectTimeout=10 -o BatchMode=yes {' '.join(args)}")
+    _log(f"ssh 密钥尝试: ssh -o ConnectTimeout=120 -o BatchMode=yes {' '.join(args)}")
     try:
-        proc = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", *args], timeout=30)
+        proc = subprocess.run(["ssh", "-o", "ConnectTimeout=120", "-o", "BatchMode=yes", *args], timeout=120)
     except subprocess.TimeoutExpired:
-        _log("ssh 密钥尝试超时(30s)")
-        print("错误: ssh 密钥认证超时(30s)", file=sys.stderr)
+        _log("ssh 密钥尝试超时(120s)")
+        print("错误: ssh 密钥认证超时(120s)", file=sys.stderr)
         return 124
     _log(f"ssh 密钥尝试退出码={proc.returncode}")
     return proc.returncode
@@ -125,7 +125,7 @@ def _run_with_password(cmd: str, argv: list[str], password: str, timeout: int = 
         proc = subprocess.run(
             [
                 cmd,
-                "-o", "ConnectTimeout=10",
+                "-o", "ConnectTimeout=120",
                 "-o", "NumberOfPasswordPrompts=1",
                 "-o", "PubkeyAuthentication=no",
                 "-o", "PreferredAuthentications=password",

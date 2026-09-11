@@ -1,3 +1,15 @@
+# SSH 私钥防护（防止误提交）
+*.pem
+*.ppk
+id_rsa*
+id_ecdsa*
+id_ed25519*
+id_*_sk*
+*_private*
+private_key*
+authorized_keys
+*.key
+
 __pycache__/
 *.py[cod]
 .venv/
