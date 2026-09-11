@@ -24,10 +24,33 @@ function resolveProjectDir(config) {
   return (config && typeof config.projectDir === "string" && config.projectDir) || DEFAULT_PROJECT_DIR;
 }
 
+function commandExists(cmd) {
+  try {
+    const { execFileSync } = require("node:child_process");
+    const probe = process.platform === "win32" ? "where" : "which";
+    execFileSync(probe, [cmd], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolvePython(config) {
   if (config && typeof config.python === "string" && config.python) return config.python;
-  const venv = join(resolveProjectDir(config), ".venv", "bin", "python");
-  return existsSync(venv) ? venv : "python3";
+  const projectDir = resolveProjectDir(config);
+  const venvCandidates =
+    process.platform === "win32"
+      ? [join(projectDir, ".venv", "Scripts", "python.exe")]
+      : [join(projectDir, ".venv", "bin", "python")];
+  for (const venv of venvCandidates) {
+    if (existsSync(venv)) return venv;
+  }
+  // 回退到 PATH：Windows 常见命令名是 python，其余平台是 python3
+  const pathNames = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
+  for (const name of pathNames) {
+    if (commandExists(name)) return name;
+  }
+  return pathNames[0];
 }
 
 function usage(message) {

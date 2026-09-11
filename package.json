@@ -1,6 +1,6 @@
 {
   "name": "dsh-ssh-hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "dsh (DeepSeek Harness) host plugin + Python CLI: centralized remote-server SSH key/password management; agents run commands and transfer files on servers directly",
   "license": "MIT",
   "type": "commonjs",

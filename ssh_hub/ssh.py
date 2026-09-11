@@ -60,7 +60,10 @@ def sync(store: Path, ssh_dir: Path, servers: list[Server]) -> None:
             dst = ssh_dir / _identity_name(server.alias)
             if key_src.exists():
                 shutil.copy2(key_src, dst)
-                dst.chmod(0o600)
+                try:
+                    dst.chmod(0o600)
+                except OSError:
+                    pass
             if pub_src.exists():
                 shutil.copy2(pub_src, Path(str(dst) + ".pub"))
         blocks.append(_server_block(server, ssh_dir))
@@ -68,7 +71,10 @@ def sync(store: Path, ssh_dir: Path, servers: list[Server]) -> None:
     fragment = ssh_dir / SSH_CONFIG_NAME
     body = "\n\n".join(blocks)
     fragment.write_text(FRAGMENT_HEADER + body + ("\n" if body else ""), encoding="utf-8")
-    fragment.chmod(0o600)
+    try:
+        fragment.chmod(0o600)
+    except OSError:
+        pass
 
     main_cfg = ssh_dir / "config"
     include_line = f"Include {SSH_CONFIG_NAME}"
@@ -106,7 +112,10 @@ def _askpass_script() -> Path:
     store.mkdir(parents=True, exist_ok=True)
     path = store / ".dsh_askpass.sh"
     path.write_text('#!/bin/sh\nprintf "%s\\n" "$DHSH_SSH_PASSWORD"\n', encoding="utf-8")
-    path.chmod(0o700)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
     return path
 
 
