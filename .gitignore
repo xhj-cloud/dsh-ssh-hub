@@ -1,3 +1,8 @@
+# 密钥库（唯一真源，含私钥，绝不入库）
+dsh-ssh-hub/
+keys/
+!keys/.gitkeep
+
 # SSH 私钥防护（防止误提交）
 *.pem
 *.ppk

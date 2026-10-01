@@ -64,7 +64,7 @@ ssh-hub run web01 -- df -h  # 免交互执行远程命令
 | `ssh-hub run <alias> [--cwd DIR] -- <cmd>` | 远程执行命令（`--cwd` 先切目录，参数自动安全引用） |
 | `ssh-hub get <alias> <remote_path> [local_path] [--recursive]` | 从服务器下载文件/目录（scp） |
 | `ssh-hub put <alias> <local_path> <remote_path> [--recursive]` | 上传文件/目录到服务器（scp） |
-| `ssh-hub password set <alias> [--password PWD]` | 保存服务器密码到 macOS 钥匙串（加密） |
+| `ssh-hub password set <alias> [--password PWD]` | 保存服务器密码到 macOS 钥匙串（加密）；推荐用 `DSH_SSH_PASSWORD` 环境变量代替 `--password`，避免密码出现在 `ps aux` 中 |
 | `ssh-hub password get <alias>` | 读取密码（明文输出，供 agent/脚本） |
 | `ssh-hub password rm <alias>` | 删除已保存的密码 |
 | `ssh-hub backup [--dir D]` | 备份密钥库为 tar.gz |

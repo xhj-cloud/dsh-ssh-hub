@@ -55,9 +55,14 @@ def cmd_add(args: argparse.Namespace) -> int:
         Server(alias=args.alias, host=args.host, user=args.user, port=args.port, key=key)
     )
     print(f"已添加服务器 {server.alias} -> {server.user}@{server.host}:{server.port}")
-    if getattr(args, "password", None):
-        set_password(server.alias, args.password)
-        print(f"已保存 {server.alias} 的密码到 macOS 钥匙串（加密存储）")
+    if getattr(args, "password", None) or os.environ.get("DSH_SSH_PASSWORD"):
+        pw = _read_password_arg(args)
+        if pw is not None:
+            set_password(server.alias, pw)
+            print(f"已保存 {server.alias} 的密码到 macOS 钥匙串（加密存储）")
+    else:
+        # 未提供任何密码来源时，静默跳过（不阻塞 add 主流程）
+        pass
     print(f"提示: 运行 ssh-hub sync 同步到 {ssh_dir()}，之后即可直接 ssh {server.alias}")
     return 0
 
@@ -219,17 +224,21 @@ def cmd_put(args: argparse.Namespace) -> int:
 
 
 def _read_password_arg(args: argparse.Namespace) -> str | None:
-    """按 --password > 环境变量 DSH_SSH_PASSWORD > 交互输入 的顺序取密码。"""
-    if getattr(args, "password", None):
-        return args.password
+    """按 DSH_SSH_PASSWORD 环境变量 > --password > 交互输入 的顺序取密码。
+
+    环境变量优先于命令行参数：环境变量不出现在 ps aux / shell history 中，
+    而 --password 会落在 argv 里，同机其他用户可通过 ps 看到。
+    """
     env_pw = os.environ.get("DSH_SSH_PASSWORD")
     if env_pw:
         return env_pw
+    if getattr(args, "password", None):
+        return args.password
     if sys.stdin.isatty():
         import getpass
 
         return getpass.getpass(f"为 {args.alias} 输入密码: ")
-    print("错误: 未提供密码（--password <pwd> 或环境变量 DSH_SSH_PASSWORD）", file=sys.stderr)
+    print("错误: 未提供密码（环境变量 DSH_SSH_PASSWORD 或 --password <pwd>）", file=sys.stderr)
     return None
 
 
@@ -292,7 +301,11 @@ def build_parser() -> argparse.ArgumentParser:
     key_group.add_argument("--generate", action="store_true", help="同时生成新的 ed25519 密钥对")
     key_group.add_argument("--key", metavar="PATH", help="导入已有私钥（复制进密钥库）")
     p_add.add_argument("--force", action="store_true", help="覆盖已存在的密钥")
-    p_add.add_argument("--password", help="同时把登录密码存入 macOS 钥匙串（加密）")
+    p_add.add_argument(
+        "--password",
+        help="同时把登录密码存入 macOS 钥匙串（加密）；"
+        "推荐用 DSH_SSH_PASSWORD 环境变量代替，避免密码出现在 ps aux / shell history 中",
+    )
     p_add.set_defaults(func=cmd_add)
 
     p_rm = sub.add_parser("rm", help="删除服务器登记（连同其受管密钥）")
@@ -347,7 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
     pw_sub = p_pw.add_subparsers(dest="action", required=True)
     p_pws = pw_sub.add_parser("set", help="保存/更新密码")
     p_pws.add_argument("alias")
-    p_pws.add_argument("--password", help="明文密码（不传则读 DSH_SSH_PASSWORD 或交互输入）")
+    p_pws.add_argument(
+        "--password",
+        help="明文密码（可选；推荐用 DSH_SSH_PASSWORD 环境变量代替，"
+             "避免密码出现在 ps aux / shell history 中）",
+    )
     p_pws.set_defaults(func=cmd_password)
     p_pwg = pw_sub.add_parser("get", help="读取密码（明文输出）")
     p_pwg.add_argument("alias")
