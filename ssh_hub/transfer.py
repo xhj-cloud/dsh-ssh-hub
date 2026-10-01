@@ -21,7 +21,7 @@ def build_scp_args(
     """构造 scp 参数。kind: 'get' 远程->本地；'put' 本地->远程。"""
     if shutil.which("scp") is None:
         raise HubError("未找到 scp 命令，请先安装 OpenSSH")
-    args = ["scp", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
+    args = ["scp", "-o", "ConnectTimeout=120", "-o", "BatchMode=yes"]
     if recursive:
         args.append("-r")
     if server.key:

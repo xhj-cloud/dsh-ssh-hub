@@ -67,7 +67,7 @@ ssh-hub run web01 -- df -h  # 免交互执行远程命令
 | `ssh-hub password set <alias> [--password PWD]` | 保存服务器密码到 macOS 钥匙串（加密）；推荐用 `DSH_SSH_PASSWORD` 环境变量代替 `--password`，避免密码出现在 `ps aux` 中 |
 | `ssh-hub password get <alias>` | 读取密码（明文输出，供 agent/脚本） |
 | `ssh-hub password rm <alias>` | 删除已保存的密码 |
-| `ssh-hub backup [--dir D]` | 备份密钥库为 tar.gz |
+| `ssh-hub backup [--dir D] [--encrypt]` | 备份密钥库为 tar.gz（含 SSH 配置片段）；`--encrypt` 用 AES-256 加密 |
 
 ## 目录布局
 
@@ -128,4 +128,4 @@ python -m unittest discover -s tests -v
 
 ## License / 许可证
 
-本项目采用 [CC BY-NC 4.0](LICENSE)（Creative Commons 署名-非商业性使用 4.0 国际）协议开源：可以自由查看、使用、修改和分发，但**禁止任何商业用途**。
+本项目采用 [MIT License](LICENSE) 协议开源：可以自由查看、使用、修改和分发（包括商业用途），仅需保留版权声明和许可声明。

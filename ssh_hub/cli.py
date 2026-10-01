@@ -85,20 +85,20 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("(暂无服务器，使用 ssh-hub add 添加)")
         return 0
     if args.json:
-        print(
-            json.dumps(
-                [
-                    {"alias": s.alias, "host": s.host, "user": s.user, "port": s.port, "key": s.key}
-                    for s in servers
-                ],
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        entries = []
+        for s in servers:
+            entry = {"alias": s.alias, "host": s.host, "user": s.user, "port": s.port, "key": s.key}
+            if getattr(args, "with_passwords", False):
+                entry["has_password"] = get_password(s.alias) is not None
+            entries.append(entry)
+        print(json.dumps(entries, ensure_ascii=False, indent=2))
         return 0
     for s in servers:
         key_mark = f" (key: {s.key})" if s.key else " (默认密钥)"
-        pw_mark = " (密码:钥匙串)" if get_password(s.alias) else " (无密码)"
+        if getattr(args, "with_passwords", False):
+            pw_mark = " (密码:钥匙串)" if get_password(s.alias) else " (无密码)"
+        else:
+            pw_mark = ""
         print(f"{s.alias:<24} {s.user}@{s.host}:{s.port}{key_mark}{pw_mark}")
     return 0
 
@@ -275,9 +275,55 @@ def cmd_backup(args: argparse.Namespace) -> int:
     out_dir = Path(args.dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base = out_dir / f"dsh-ssh-hub-backup-{stamp}"
-    shutil.make_archive(str(base), "gztar", root_dir=store)
-    print(f"备份完成: {base}.tar.gz")
+
+    import tempfile
+
+    # 用临时目录打包：密钥库 + SSH 配置片段（恢复时 Include 片段也一起还原）
+    fragment = ssh_dir() / SSH_CONFIG_NAME
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp) / "dsh-ssh-hub"
+        shutil.copytree(store, stage, symlinks=True)
+        if fragment.exists():
+            shutil.copy2(fragment, stage / SSH_CONFIG_NAME)
+        base = out_dir / f"dsh-ssh-hub-backup-{stamp}"
+        shutil.make_archive(str(base), "gztar", root_dir=tmp, base_dir="dsh-ssh-hub")
+
+    backup_path = Path(str(base) + ".tar.gz")
+    print(f"备份完成: {backup_path}")
+    if fragment.exists():
+        print(f"（含 SSH 配置片段 {SSH_CONFIG_NAME}，恢复后仍需运行 ssh-hub sync 重新注入 Include）")
+
+    # 可选加密：openssl aes-256-cbc -pbkdf2（需要系统安装 openssl）
+    if getattr(args, "encrypt", False):
+        if shutil.which("openssl") is None:
+            print("错误: 未找到 openssl 命令，无法加密备份", file=sys.stderr)
+            return 1
+        import getpass
+        import subprocess as _sp
+
+        pw = os.environ.get("DSH_SSH_BACKUP_PASSWORD")
+        if not pw:
+            pw = getpass.getpass("备份加密密码: ")
+        enc_path = Path(str(backup_path) + ".enc")
+        # 密码通过环境变量传给 openssl 的 -pass env: 方式，不落 argv
+        env = dict(os.environ, DSH_SSH_BACKUP_PASSWORD=pw)
+        try:
+            _sp.run(
+                [
+                    "openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-salt",
+                    "-in", str(backup_path), "-out", str(enc_path),
+                    "-pass", "env:DSH_SSH_BACKUP_PASSWORD",
+                ],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+        except _sp.CalledProcessError as exc:
+            print(f"加密失败: {exc.stderr.decode() if exc.stderr else exc}", file=sys.stderr)
+            return 1
+        backup_path.unlink()
+        print(f"加密备份: {enc_path}")
+        print("恢复命令: openssl enc -d -aes-256-cbc -pbkdf2 -in <file>.enc -out backup.tar.gz -pass env:DSH_SSH_BACKUP_PASSWORD")
     return 0
 
 
@@ -314,6 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ls = sub.add_parser("list", help="列出所有服务器")
     p_ls.add_argument("--json", action="store_true", help="JSON 输出（便于 dsh / 脚本解析）")
+    p_ls.add_argument(
+        "--with-passwords",
+        action="store_true",
+        help="查询钥匙串显示密码状态（每台服务器一次 subprocess 调用，服务器多时较慢）",
+    )
     p_ls.set_defaults(func=cmd_list)
 
     p_show = sub.add_parser("show", help="查看单个服务器详情")
@@ -373,8 +424,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_pwr.add_argument("alias")
     p_pwr.set_defaults(func=cmd_password)
 
-    p_bak = sub.add_parser("backup", help="备份密钥库为 tar.gz")
+    p_bak = sub.add_parser("backup", help="备份密钥库为 tar.gz（含 SSH 配置片段）")
     p_bak.add_argument("--dir", default=".", help="备份输出目录（默认当前目录）")
+    p_bak.add_argument(
+        "--encrypt",
+        action="store_true",
+        help="用 openssl aes-256-cbc -pbkdf2 加密备份（密码从 DSH_SSH_BACKUP_PASSWORD 读取或交互输入）",
+    )
     p_bak.set_defaults(func=cmd_backup)
 
     return parser
