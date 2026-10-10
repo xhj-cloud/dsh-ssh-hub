@@ -1,6 +1,7 @@
 """同步密钥与配置到 ~/.ssh，并执行 ssh 连接 / 远程命令。"""
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
@@ -13,6 +14,24 @@ from ssh_hub.keychain import get_password
 from ssh_hub.store import Server
 
 FRAGMENT_HEADER = "# 由 dsh-ssh-hub 自动生成，请勿手动编辑。运行 ssh-hub sync 重新生成。\n"
+
+# OpenSSH 传输层失败退出码：255=连接/认证层错误，124=超时（本工具自身定义）
+TRANSPORT_FAILURE_CODES = frozenset({255, 124})
+
+# 连接超时（秒）：仅控制 TCP/SSH 握手阶段
+CONNECT_TIMEOUT = 15
+# 命令超时（秒）：控制远程命令执行阶段（含连接），默认 120s
+CMD_TIMEOUT = 120
+
+
+def is_transport_failure(rc: int) -> bool:
+    """判定退出码是否为传输层失败（连接/认证），而非远端命令自身的非零退出。
+
+    OpenSSH 在连接失败、认证失败、协议错误时返回 255；
+    本工具在 subprocess 超时时返回 124。
+    远端命令自身返回的非零退出码（1-254）不应触发密码回退。
+    """
+    return rc in TRANSPORT_FAILURE_CODES
 
 
 def _log(msg: str) -> None:
@@ -90,20 +109,29 @@ def sync(store: Path, ssh_dir: Path, servers: list[Server]) -> None:
         pass
 
 
-def run_ssh(args: list[str]) -> int:
-    """执行 ssh（连接或远程命令），透传 stdin/stdout/stderr。"""
+def run_ssh(args: list[str], timeout: int = CMD_TIMEOUT, capture_stderr: bool = False) -> tuple[int, str | None]:
+    """执行 ssh（连接或远程命令）。
+
+    返回 (退出码, stderr文本)。capture_stderr=False 时 stderr 透传到父进程，
+    返回 None；capture_stderr=True 时 stderr 被捕获，返回文本。
+    """
     if shutil.which("ssh") is None:
         print("错误: 未找到 ssh 命令", file=sys.stderr)
-        return 1
-    _log(f"ssh 密钥尝试: ssh -o ConnectTimeout=120 -o BatchMode=yes {' '.join(args)}")
+        return 1, None
+    stderr_buf: io.StringIO | None = io.StringIO() if capture_stderr else None
+    _log(f"ssh 密钥尝试: ssh -o ConnectTimeout={CONNECT_TIMEOUT} -o BatchMode=yes {' '.join(args)}")
     try:
-        proc = subprocess.run(["ssh", "-o", "ConnectTimeout=120", "-o", "BatchMode=yes", *args], timeout=120)
+        proc = subprocess.run(
+            ["ssh", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}", "-o", "BatchMode=yes", *args],
+            timeout=timeout,
+            stderr=stderr_buf,
+        )
     except subprocess.TimeoutExpired:
-        _log("ssh 密钥尝试超时(120s)")
-        print("错误: ssh 密钥认证超时(120s)", file=sys.stderr)
-        return 124
+        _log(f"ssh 密钥尝试超时({timeout}s)")
+        print("错误: ssh 超时（超过 %ss）" % timeout, file=sys.stderr)
+        return 124, (stderr_buf.getvalue() if stderr_buf else None)
     _log(f"ssh 密钥尝试退出码={proc.returncode}")
-    return proc.returncode
+    return proc.returncode, (stderr_buf.getvalue() if stderr_buf else None)
 
 
 def _askpass_script() -> Path:
@@ -134,7 +162,7 @@ def _run_with_password(cmd: str, argv: list[str], password: str, timeout: int = 
         proc = subprocess.run(
             [
                 cmd,
-                "-o", "ConnectTimeout=120",
+                "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
                 "-o", "NumberOfPasswordPrompts=1",
                 "-o", "PubkeyAuthentication=no",
                 "-o", "PreferredAuthentications=password",
@@ -182,9 +210,17 @@ def run_scp_with_password(
     return _run_with_password("scp", argv, password, timeout)
 
 
-def try_run_with_password(alias: str, command: list[str]) -> int | None:
-    """密钥认证失败后尝试密码回退；未保存密码返回 None。"""
+def try_run_with_password(alias: str, command: list[str], timeout: int = CMD_TIMEOUT) -> int:
+    """密钥传输层失败后尝试密码回退；未保存密码返回 255。
+
+    回退成功时输出机读标记 [key-auth-failed → password-ok]，
+    回退失败时原样透传密码通道的 stderr。
+    """
     pw = get_password(alias)
     if pw is None:
-        return None
-    return run_ssh_with_password(alias, command, pw)
+        _log(f"密码回退跳过: {alias} 无已保存密码")
+        return 255
+    rc = run_ssh_with_password(alias, command, pw, timeout)
+    if rc == 0:
+        print("[key-auth-failed → password-ok]", file=sys.stderr)
+    return rc

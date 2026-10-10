@@ -22,7 +22,7 @@ from ssh_hub import __version__
 from ssh_hub.config import SSH_CONFIG_NAME, ssh_dir, store_dir
 from ssh_hub.keychain import delete_password, get_password, set_password
 from ssh_hub.keys import ensure_secure_dirs, generate_keypair, import_key
-from ssh_hub.ssh import run_ssh, sync, try_run_with_password
+from ssh_hub.ssh import CMD_TIMEOUT, CONNECT_TIMEOUT, is_transport_failure, run_ssh, sync, try_run_with_password
 from ssh_hub.store import HubError, Inventory, Server
 from ssh_hub.transfer import build_scp_args, run_scp, run_scp_transfer
 
@@ -166,11 +166,19 @@ def cmd_connect(args: argparse.Namespace) -> int:
     _, inv = _store_and_inventory()
     server = inv.get(args.alias)
     print(f"连接 {server.alias} ({server.user}@{server.host}:{server.port}) ...", file=sys.stderr)
-    rc = run_ssh([server.alias])
-    if rc != 0:
-        fallback = try_run_with_password(server.alias, [])
-        if fallback is not None:
-            return fallback
+    rc, key_err = run_ssh([server.alias], capture_stderr=True)
+    if is_transport_failure(rc):
+        # 第一跳 stderr 已缓冲，不透传；回退失败时再输出
+        fallback_rc = try_run_with_password(server.alias, [])
+        if fallback_rc == 0:
+            return 0
+        # 回退也失败：输出第一跳的 stderr 供诊断
+        if key_err:
+            print(key_err, file=sys.stderr, end="")
+        return fallback_rc
+    # 非传输层失败：第一跳 stderr 已透传（capture_stderr=True 时不在此处输出）
+    if key_err:
+        print(key_err, file=sys.stderr, end="")
     return rc
 
 
@@ -186,11 +194,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     quoted = [shlex.quote(c) for c in command]
     if args.cwd:
         quoted = ["cd", shlex.quote(args.cwd), "&&", *quoted]
-    rc = run_ssh([server.alias, *quoted])
-    if rc != 0:
-        fallback = try_run_with_password(server.alias, quoted)
-        if fallback is not None:
-            return fallback
+    timeout = getattr(args, "timeout", None) or CMD_TIMEOUT
+    rc, key_err = run_ssh([server.alias, *quoted], timeout=timeout, capture_stderr=True)
+    if is_transport_failure(rc):
+        # 传输层失败（连接/认证）：缓冲第一跳 stderr，尝试密码回退
+        fallback_rc = try_run_with_password(server.alias, quoted, timeout=timeout)
+        if fallback_rc == 0:
+            return 0
+        # 回退也失败：输出第一跳的 stderr 供诊断
+        if key_err:
+            print(key_err, file=sys.stderr, end="")
+        return fallback_rc
+    # 远端命令自身返回非零（正常情况）：输出第一跳 stderr（如有），直接返回
+    if key_err:
+        print(key_err, file=sys.stderr, end="")
     return rc
 
 
@@ -201,7 +218,7 @@ def cmd_get(args: argparse.Namespace) -> int:
     argv = build_scp_args(server, store, "get", args.remote_path, local, recursive=args.recursive)
     print(f"下载 {args.alias}:{args.remote_path} -> {local}", file=sys.stderr)
     rc = run_scp(argv)
-    if rc != 0:
+    if is_transport_failure(rc):
         pw = get_password(args.alias)
         if pw is not None:
             print("密钥认证失败，尝试密码认证 ...", file=sys.stderr)
@@ -215,7 +232,7 @@ def cmd_put(args: argparse.Namespace) -> int:
     argv = build_scp_args(server, store, "put", args.local_path, args.remote_path, recursive=args.recursive)
     print(f"上传 {args.local_path} -> {args.alias}:{args.remote_path}", file=sys.stderr)
     rc = run_scp(argv)
-    if rc != 0:
+    if is_transport_failure(rc):
         pw = get_password(args.alias)
         if pw is not None:
             print("密钥认证失败，尝试密码认证 ...", file=sys.stderr)
@@ -390,6 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="在远程服务器上执行命令")
     p_run.add_argument("alias")
     p_run.add_argument("--cwd", help="远程工作目录（先 cd 再执行）")
+    p_run.add_argument("--timeout", type=int, default=None, help=f"命令超时秒数（默认 {CMD_TIMEOUT}；连接超时固定 {CONNECT_TIMEOUT}s）")
     p_run.add_argument("command", nargs=argparse.REMAINDER)
     p_run.set_defaults(func=cmd_run)
 

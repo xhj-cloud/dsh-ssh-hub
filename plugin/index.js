@@ -94,10 +94,6 @@ function buildArgv(command, args) {
       if (typeof args.password !== "string" || !args.password) return usage("password_set 需要 password（明文密码）");
       return ["password", "set", args.alias, "--password", args.password];
     }
-    case "password_get": {
-      if (!args.alias) return usage("password_get 需要 alias（服务器别名）");
-      return ["password", "get", args.alias];
-    }
     case "password_rm": {
       if (!args.alias) return usage("password_rm 需要 alias（服务器别名）");
       return ["password", "rm", args.alias];
@@ -109,6 +105,7 @@ function buildArgv(command, args) {
       }
       const argv = ["run", args.alias];
       if (args.cwd) argv.push("--cwd", String(args.cwd));
+      if (args.timeout) argv.push("--timeout", String(args.timeout));
       argv.push("--", ...args.remote_command.map(String));
       return argv;
     }
@@ -157,7 +154,7 @@ function apply(ctx, config) {
   ctx.tools.register({
     name: "ssh_hub",
     description:
-      "通过 dsh-ssh-hub 管理远程服务器 SSH 密钥/密码、执行远程命令并传输文件，用于 agent 在服务器上直接进行代码操作。密码以加密形式存于 macOS 钥匙串（不落明文），密钥与密码统一管理，其他 agent 可直接连接。常用代码工作流: run <alias> -- <cmd> 远程执行（--cwd 切目录，密钥失败自动改用密码）; get <alias> <remote_path> [local_path] 下载文件到本地编辑; put <alias> <local_path> <remote_path> 上传改好的文件; 配合本地文件工具完成 拉取->修改->上传->远程测试 闭环。注意: 复合命令（含 && | 重定向等）请用单个元素 bash -lc '...'，因为每个参数会被安全引用。命令: init 初始化; add 登记服务器(可 --generate 生成密钥, --password 存密码); list 列出(JSON); show 详情; rm 删除; sync 同步到 ~/.ssh; run 远程执行命令; get 下载(可 --recursive); put 上传(可 --recursive); password_set 保存密码(加密入钥匙串); password_get 读取密码; password_rm 删除密码; backup 备份; key_gen 生成密钥; key_ls 列出密钥。注意: 连接远程服务器与读写 ~/.ssh 属于宿主机/远程操作，涉及用户授权。",
+      "通过 dsh-ssh-hub 管理远程服务器 SSH 密钥/密码、执行远程命令并传输文件，用于 agent 在服务器上直接进行代码操作。密码以加密形式存于 macOS 钥匙串（不落明文），密钥与密码统一管理，其他 agent 可直接连接。常用代码工作流: run <alias> -- <cmd> 远程执行（--cwd 切目录，传输层失败自动改用密码；远端命令自身非零退出码不触发回退）; get <alias> <remote_path> [local_path] 下载文件到本地编辑; put <alias> <local_path> <remote_path> 上传改好的文件; 配合本地文件工具完成 拉取->修改->上传->远程测试 闭环。注意: 复合命令（含 && | 重定向等）请用单个元素 bash -lc '...'，因为每个参数会被安全引用。命令: init 初始化; add 登记服务器(可 --generate 生成密钥, --password 存密码); list 列出(JSON); show 详情; rm 删除; sync 同步到 ~/.ssh; run 远程执行命令(可 --timeout 秒); get 下载(可 --recursive); put 上传(可 --recursive); password_set 保存密码(加密入钥匙串); password_rm 删除密码; backup 备份(可 --encrypt); key_gen 生成密钥; key_ls 列出密钥。注意: 连接远程服务器与读写 ~/.ssh 属于宿主机/远程操作，涉及用户授权。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -165,7 +162,7 @@ function apply(ctx, config) {
       properties: {
         command: {
           type: "string",
-          enum: ["init", "add", "list", "show", "rm", "sync", "run", "get", "put", "password_set", "password_get", "password_rm", "backup", "key_gen", "key_ls"],
+          enum: ["init", "add", "list", "show", "rm", "sync", "run", "get", "put", "password_set", "password_rm", "backup", "key_gen", "key_ls"],
           description: "要执行的子命令",
         },
         alias: { type: "string", description: "服务器别名；add/show/rm/run/get/put/key_gen 需要" },
@@ -175,6 +172,7 @@ function apply(ctx, config) {
         generate_key: { type: "boolean", description: "add 时同时生成 ed25519 密钥对" },
         force: { type: "boolean", description: "覆盖已存在的密钥（add/key_gen）" },
         cwd: { type: "string", description: "远程工作目录；run 使用（先 cd 再执行）" },
+        timeout: { type: "integer", description: "命令超时秒数；run 使用（默认 600，连接超时固定 15s 不受此参数影响）" },
         remote_command: {
           type: "array",
           items: { type: "string" },
@@ -206,11 +204,14 @@ function apply(ctx, config) {
         return { exit_code: 2, stdout: "", stderr: argv.error };
       }
       const python = resolvePython(config);
+      const timeoutMs = args.command === "run"
+        ? (args.timeout ? Math.min(args.timeout * 1000, 3600000) + 30000 : 630000)
+        : 30000;
       const options = {
         cwd: resolveProjectDir(config),
         env: process.env,
         maxBuffer: 4 * 1024 * 1024,
-        timeout: args.command === "run" ? 120000 : 30000,
+        timeout: timeoutMs,
         ...(exec && exec.signal ? { signal: exec.signal } : {}),
       };
       const result = await runCli(python, ["-m", "ssh_hub", ...argv], options);
