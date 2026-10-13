@@ -1,7 +1,6 @@
 """同步密钥与配置到 ~/.ssh，并执行 ssh 连接 / 远程命令。"""
 from __future__ import annotations
 
-import io
 import os
 import shutil
 import subprocess
@@ -118,20 +117,35 @@ def run_ssh(args: list[str], timeout: int = CMD_TIMEOUT, capture_stderr: bool = 
     if shutil.which("ssh") is None:
         print("错误: 未找到 ssh 命令", file=sys.stderr)
         return 1, None
-    stderr_buf: io.StringIO | None = io.StringIO() if capture_stderr else None
     _log(f"ssh 密钥尝试: ssh -o ConnectTimeout={CONNECT_TIMEOUT} -o BatchMode=yes {' '.join(args)}")
-    try:
-        proc = subprocess.run(
-            ["ssh", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}", "-o", "BatchMode=yes", *args],
-            timeout=timeout,
-            stderr=stderr_buf,
-        )
-    except subprocess.TimeoutExpired:
-        _log(f"ssh 密钥尝试超时({timeout}s)")
-        print("错误: ssh 超时（超过 %ss）" % timeout, file=sys.stderr)
-        return 124, (stderr_buf.getvalue() if stderr_buf else None)
-    _log(f"ssh 密钥尝试退出码={proc.returncode}")
-    return proc.returncode, (stderr_buf.getvalue() if stderr_buf else None)
+    if capture_stderr:
+        # stderr 用 PIPE 捕获（subprocess 需要文件描述符，不能用 StringIO）
+        try:
+            proc = subprocess.run(
+                ["ssh", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}", "-o", "BatchMode=yes", *args],
+                timeout=timeout,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except subprocess.TimeoutExpired:
+            _log(f"ssh 密钥尝试超时({timeout}s)")
+            print("错误: ssh 超时（超过 %ss）" % timeout, file=sys.stderr)
+            return 124, ""
+        _log(f"ssh 密钥尝试退出码={proc.returncode}")
+        return proc.returncode, (proc.stderr or "")
+    else:
+        # stderr 透传到父进程（默认行为）
+        try:
+            proc = subprocess.run(
+                ["ssh", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}", "-o", "BatchMode=yes", *args],
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            _log(f"ssh 密钥尝试超时({timeout}s)")
+            print("错误: ssh 超时（超过 %ss）" % timeout, file=sys.stderr)
+            return 124, None
+        _log(f"ssh 密钥尝试退出码={proc.returncode}")
+        return proc.returncode, None
 
 
 def _askpass_script() -> Path:
