@@ -185,11 +185,10 @@ def cmd_connect(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     _, inv = _store_and_inventory()
     server = inv.get(args.alias)
+    # nargs="*" 已自动消费 -- 分隔符，args.command 直接是远程命令参数
     command = list(args.command)
-    if command and command[0] == "--":
-        command = command[1:]
     if not command:
-        print("用法: ssh-hub run <alias> [--cwd DIR] -- <command...>", file=sys.stderr)
+        print("用法: ssh-hub run <alias> [--cwd DIR] [--timeout SECS] -- <command...>", file=sys.stderr)
         return 2
     quoted = [shlex.quote(c) for c in command]
     if args.cwd:
@@ -197,15 +196,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     timeout = getattr(args, "timeout", None) or CMD_TIMEOUT
     rc, key_err = run_ssh([server.alias, *quoted], timeout=timeout, capture_stderr=True)
     if is_transport_failure(rc):
-        # 传输层失败（连接/认证）：缓冲第一跳 stderr，尝试密码回退
         fallback_rc = try_run_with_password(server.alias, quoted, timeout=timeout)
         if fallback_rc == 0:
             return 0
-        # 回退也失败：输出第一跳的 stderr 供诊断
         if key_err:
             print(key_err, file=sys.stderr, end="")
         return fallback_rc
-    # 远端命令自身返回非零（正常情况）：输出第一跳 stderr（如有），直接返回
     if key_err:
         print(key_err, file=sys.stderr, end="")
     return rc
@@ -408,7 +404,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("alias")
     p_run.add_argument("--cwd", help="远程工作目录（先 cd 再执行）")
     p_run.add_argument("--timeout", type=int, default=None, help=f"命令超时秒数（默认 {CMD_TIMEOUT}；连接超时固定 {CONNECT_TIMEOUT}s）")
-    p_run.add_argument("command", nargs=argparse.REMAINDER)
+    p_run.add_argument("command", nargs="*", help="远程命令（用 -- 与本地参数分隔）")
     p_run.set_defaults(func=cmd_run)
 
     p_get = sub.add_parser("get", help="从远程服务器下载文件/目录（scp）")

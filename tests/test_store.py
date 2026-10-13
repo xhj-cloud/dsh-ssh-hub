@@ -108,6 +108,36 @@ class CliSmokeTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
 
 
+class RunArgParsingTest(unittest.TestCase):
+    """锁定 --cwd / --timeout 不被 REMAINDER 吞进 command。"""
+
+    def _parse(self, *argv):
+        from ssh_hub.cli import build_parser
+        return build_parser().parse_args(argv)
+
+    def test_cwd_and_timeout_not_swallowed(self):
+        args = self._parse("run", "h", "--cwd", "/tmp", "--timeout", "30", "--", "hostname")
+        self.assertEqual(args.cwd, "/tmp")
+        self.assertEqual(args.timeout, 30)
+        self.assertEqual(args.command, ["hostname"])
+
+    def test_cwd_only(self):
+        args = self._parse("run", "h", "--cwd", "/var/log", "--", "tail", "-5", "syslog")
+        self.assertEqual(args.cwd, "/var/log")
+        self.assertIsNone(args.timeout)
+        self.assertEqual(args.command, ["tail", "-5", "syslog"])
+
+    def test_no_cwd_no_timeout(self):
+        args = self._parse("run", "h", "--", "df", "-h")
+        self.assertIsNone(args.cwd)
+        self.assertIsNone(args.timeout)
+        self.assertEqual(args.command, ["df", "-h"])
+
+    def test_command_with_dashdash_flags(self):
+        args = self._parse("run", "h", "--", "ls", "--all", "/tmp")
+        self.assertEqual(args.command, ["ls", "--all", "/tmp"])
+
+
 class TransportFailureTest(unittest.TestCase):
     """锁定 ①②：传输层失败判定 + 非零退出码不触发回退。"""
 
